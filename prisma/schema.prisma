@@ -1,0 +1,116 @@
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGO_URL")
+}
+
+
+enum AppointmentType {
+  ONSITE
+  ONLINE
+  OFFSITE
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  OFFERED
+  ACCEPTED_BY_EMPLOYEE
+  REJECTED_BY_EMPLOYEE
+}
+
+enum EmployeeRole {
+  REFINANCE
+  STAFF
+  ENGINEER
+  ADMIN
+}
+
+enum EmployeeAbilityTag {
+  ENGINEER
+  REFINANCE
+  GENERAL
+}
+
+enum EmployeeResponse {
+  ACCEPT
+  REJECT
+  OFFER
+}
+
+model Employee {
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  fullname String?
+  email    String? @unique
+  password String? // optional - for future employee login
+  phone    String? @unique
+  role EmployeeRole @default(STAFF)
+  profileImageUrl String?
+  appointments Appointment[]
+  employeeTags EmployeeTag[]
+  centralServerId String? @unique // Central server adminId
+  staffId         String? // Central server staffId
+  centralRoles    Json? // Store central server roles array
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Tag {
+  id   String             @id @default(auto()) @map("_id") @db.ObjectId
+  name EmployeeAbilityTag @unique
+  employeeTags EmployeeTag[]
+}
+
+model EmployeeTag {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  employeeId String   @db.ObjectId
+  tag        Tag      @relation(fields: [tagId], references: [id])
+  tagId      String   @db.ObjectId
+}
+
+model Customer {
+  id                String  @id @default(auto()) @map("_id") @db.ObjectId
+  line_display_name String?
+  fullname          String?
+  phone             String? @unique
+  line_user_id      String  @unique
+  email             String?
+  picture_url       String?
+  appointments Appointment[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Appointment {
+  id     String            @id @default(auto()) @map("_id") @db.ObjectId
+  type   AppointmentType
+  status AppointmentStatus @default(PENDING)
+  date    DateTime
+  day     String
+  section String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  customerId String   @unique @db.ObjectId
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+  employeeId String?   @db.ObjectId
+
+  note String?
+
+  requiredTags     EmployeeAbilityTag[] // Array of tags required for this appointment (e.g., ["ENGINEER", "REFINANCE"])
+  employeeResponse EmployeeResponse? // Employee's response: ACCEPT, REJECT, or OFFER
+  offerDate        DateTime? // Optional: Proposed new date/time if employee offers a new slot
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId, date])
+  @@index([requiredTags]) // New index for efficient tag-based queries
+}

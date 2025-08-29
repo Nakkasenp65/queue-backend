@@ -1,0 +1,6 @@
+# Prettier
+.prettierrc
+
+# ESLint
+eslint.config.js
+.eslintcache
