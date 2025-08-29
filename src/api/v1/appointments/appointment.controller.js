@@ -54,6 +54,7 @@ async function getAvailabilityController(req, res) {
     console.log("Availability Check", availability);
     return res.status(200).json(availability);
   } catch (error) {
+    console.error("Controller Error (getAvailabilityController):", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 }
@@ -141,9 +142,13 @@ async function getUpcomingAppointmentsController(req, res) {
 }
 
 async function getAppointmentsByTags(req, res) {
-  const tags = req.query.tags;
-  console.log("Tags from query:", tags);
-  const appointments = await appointmentService.findAppointmentsByTags(tags);
+  const { tags, employeeAdminId } = req.query; // เปลี่ยนจาก employeeId เป็น employeeAdminId
+
+  if (!employeeAdminId) {
+    return res.status(400).json({ message: "Employee Admin ID is required" });
+  }
+
+  const appointments = await appointmentService.findAppointmentsByTags(tags, employeeAdminId);
   return res.status(200).json(appointments);
 }
 
@@ -200,30 +205,42 @@ async function getAppointmentByIdController(req, res) {
  * @param {object} res The response object.
  */
 async function updateAppointmentController(req, res) {
-  try {
-    const { id } = req.params;
-    const updatedAppointment = await appointmentService.updateAppointmentById(id, req.body);
+  const { id: appointmentId } = req.params;
+  const { action, offerDate, employeeInfo } = req.body;
 
-    if (!updatedAppointment) {
-      return res.json({ success: false, message: "Appointment not found" }, 404);
-    }
-
-    return res.json({ success: true, data: updatedAppointment });
-  } catch (error) {
-    console.error("Controller Error (updateAppointmentController):", error);
-    return res.json({ success: false, message: "Internal Server Error" }, 500);
+  if (!employeeInfo) {
+    return res.status(400).json({ message: "Employee info is required" });
   }
+
+  // (สำคัญ) แปลง Object เป็น JSON String ก่อนส่งให้ Service
+  const employeeInfoString = JSON.stringify(employeeInfo);
+
+  const updatedAppointment = await appointmentService.updateAppointmentStatusByEmployee(
+    appointmentId,
+    employeeInfoString,
+    action,
+    offerDate
+  );
+  res.status(200).json(updatedAppointment);
+}
+
+async function cancelAppointmentController(req, res) {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({ message: "Appointment ID is required" });
+  }
+  const appointment = await appointmentService.cancelAppointment(id);
+  res.status(200).json(appointment);
 }
 
 async function updateAppointmentActionController(req, res) {
   try {
     const { id: appointmentId } = req.params;
-    const { action, offerDate } = req.body;
-    const employeeId = req.employee.id; // จาก authMiddleware
+    const { action, offerDate, employeeInfo } = req.body;
 
     const updatedAppointment = await appointmentService.updateAppointmentStatusByEmployee(
       appointmentId,
-      employeeId,
+      employeeInfo,
       action,
       offerDate
     );
@@ -258,15 +275,25 @@ async function deleteAppointmentController(req, res) {
   }
 }
 
+async function getDisplayAppointment(req, res) {
+  const appointment = await appointmentService.getDisplayAppointment(req.params.customerId);
+  if (!appointment) {
+    return res.status(404).json({ message: "Appointment not found" });
+  }
+  return res.status(200).json(appointment);
+}
+
 export default {
   createAppointmentController,
   getAvailabilityController,
   getUpcomingAppointmentsController,
   getAppointmentsByTags,
+  getDisplayAppointment,
   listAppointmentsController,
   listCustomerAppointmentsController,
   getAppointmentByIdController,
   updateAppointmentController,
   updateAppointmentActionController,
   deleteAppointmentController,
+  cancelAppointmentController,
 };
