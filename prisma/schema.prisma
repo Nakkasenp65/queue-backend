@@ -49,6 +49,7 @@ model Appointment {
   id               String            @id @default(auto()) @map("_id") @db.ObjectId
   type             AppointmentType
   status           AppointmentStatus @default(PENDING)
+  serviceType      String
   date             DateTime
   day              String
   section          String
@@ -57,10 +58,12 @@ model Appointment {
   note             String?
   requiredTags     String[] // Array of tags required for this appointment (e.g., ["ENGINEER", "REFINANCE"])
   employeeResponse EmployeeResponse? // Employee's response: ACCEPT, REJECT, or OFFER
-  adminId          String? // Optional: Information about the employee handling the appointment
+  adminInfo        Json? // Optional: Information about the employee handling the appointment
   offerDate        DateTime? // Optional: Proposed new date/time if employee offers a new slot
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+  score            Int? // 1 - 5 from customer feedback
+  feedback         String?
 
   @@index([customerId, date])
   @@index([requiredTags])

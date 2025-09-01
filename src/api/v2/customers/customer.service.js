@@ -2,23 +2,26 @@ import { getDb } from "../../../lib/db.js";
 import COLLECTIONS from "../../../utils/COLLECTIONS.js";
 import toObjectIdSafe from "../../../utils/toObjectIdSafe.js";
 
-
 async function createOrUpdateCustomer(data) {
   const db = await getDb();
   const col = db.collection(COLLECTIONS.CUSTOMERS);
-  const result = await col.findOneAndUpdate({ line_user_id: data.line_user_id }, {
-    $set: {
-      line_display_name: data.line_display_name ?? null,
-      fullname: data.fullname ?? null,
-      phone: data.phone ?? null,
-      email: data.email ?? null,
-      note: data.note ?? null,
-      updatedAt: new Date(),
+  const result = await col.findOneAndUpdate(
+    { line_user_id: data.line_user_id },
+    {
+      $set: {
+        line_display_name: data.line_display_name ?? null,
+        fullname: data.fullname ?? null,
+        phone: data.phone ?? null,
+        email: data.email ?? null,
+        note: data.note ?? null,
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        createdAt: new Date(),
+      },
     },
-    $setOnInsert: {
-      createdAt: new Date(),
-    },
-  }, { upsert: true, returnDocument: "after" });
+    { upsert: true, returnDocument: "after" }
+  );
   return result.value;
 }
 
@@ -37,7 +40,7 @@ async function findCustomers(filters = {}) {
 async function findCustomerById(id) {
   const db = await getDb();
   const col = db.collection(COLLECTIONS.CUSTOMERS);
-  if(!id) throw new Error("Customer ID is required");
+  if (!id) throw new Error("Customer ID is required");
   const oid = toObjectIdSafe(id);
   if (!oid) return null;
   return await col.findOne({ _id: oid });
@@ -94,3 +97,4 @@ export default {
   findCustomerById,
   findCustomerByLineUserIdWithAppointments,
   updateCustomerById,
+};

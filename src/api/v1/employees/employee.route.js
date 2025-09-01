@@ -1,13 +1,8 @@
-import express from 'express';
-import employeeController from './employee.controller';
+import express from "express";
+import employeeController from "./employee.controller.js";
 
 const employeeRouter = express.Router();
 
-/**
- * @route   GET /api/v1/employees/:staffId
- * @desc    Get an employee by their staff ID
- * @example http://localhost:3000/api/v1/employees/EMP001
- */
-employeeRouter.get('/:staffId', employeeController.findEmployeeByStaffIdController);
+employeeRouter.get("/", employeeController.getAppointmentByTags);
 
 export default employeeRouter;

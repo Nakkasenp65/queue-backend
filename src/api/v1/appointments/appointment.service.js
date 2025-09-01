@@ -1,36 +1,69 @@
 // import prisma from '../../../lib/prisma.js';
-import { startOfDay, endOfDay } from "date-fns";
+import { startOfDay, endOfDay, format } from "date-fns";
 import prisma from "../../../lib/prisma.js";
 
 /**
  * Creates a new appointment.
  * Assumes customerId is validated and provided by the controller.
- * @param {object} data The appointment data.
- * @param {string} data.customerId The unique ID of the customer making the appointment.
- * @param {Date} data.date The full date and time of the appointment.
- * @param {string} data.day The date part of the appointment in 'yyyy-MM-dd' format.
- * @param {string} data.section The hour part of the appointment as a string.
- * @param {'ONSITE' | 'ONLINE' | 'OFFSITE'} data.type The type of the appointment.
- * @param {string} [data.note] An optional note for the appointment.
- * @param {Array<'ENGINEER' | 'REFINANCE' | 'GENERAL'>} [data.requiredTags] Optional tags for required employee skills.
- * @returns {Promise<object>} The newly created appointment record, including customer and employee details.
+ * @param {string} customerId The unique ID of the customer making the appointment.
+ * @param {object} appointment The appointment data.
+ * @param {Date} appointment.date The full date and time of the appointment.
+ * @param {'ONSITE' | 'ONLINE' | 'OFFSITE'} appointment.type The type of the appointment.
+ * @param {string} [appointment.note] An optional note for the appointment.
+ * @param {Array<string>} [appointment.requiredTags] Optional tags for required employee skills.
+ * @returns {Promise<object>} The newly created appointment record, including customer details.
  */
-const createAppointment = async (data) => {
+const createAppointment = async (customerId, appointment) => {
+  const day = new Date(appointment.date);
+  const savedDay = format(day, "yyyy-MM-dd");
+  const section = String(day.getHours());
   return await prisma.appointment.create({
     data: {
-      customerId: data.customerId,
-      date: data.date,
-      day: data.day,
-      section: data.section,
-      type: data.type,
-      note: data.note,
-      requiredTags: data.requiredTags || [],
-      status: "PENDING", // Default status on creation
+      customer: { connect: { id: customerId } },
+      date: appointment.date,
+      day: savedDay,
+      section: section,
+      type: appointment.type,
+      note: appointment.note,
+      requiredTags: appointment.requiredTags || [],
+      status: "PENDING",
     },
     include: {
       customer: true,
     },
   });
+};
+
+const createNewUserAppointment = async ({ customer, appointment }) => {
+  const newCustomer = await prisma.customer.create({
+    data: {
+      line_display_name: customer.line_display_name,
+      fullname: customer.fullname,
+      phone: customer.phone,
+      line_user_id: customer.line_user_id,
+      email: customer.email,
+      picture_url: customer.lineProfilePicUrl,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      appointments: [],
+    },
+  });
+
+  if (!newCustomer) {
+    throw new Error("Failed to create new customer");
+  }
+
+  const newAppointment = await prisma.appointment.create({
+    data: {
+      ...appointment,
+      customerId: newCustomer.id,
+    },
+  });
+
+  return {
+    customer: newCustomer,
+    appointment: newAppointment,
+  };
 };
 
 /**
@@ -50,7 +83,7 @@ const getAvailabilityByDate = async (date) => {
   // ========================================================================
   // TODO: นี่คือส่วนที่คุณจะนำข้อมูลการเข้ากะของพนักงาน (จาก CSV หรือ DB) มาใส่
   const employeeCapacityToday = {
-    REFINANCE: 1,
+    REFINANCE: 2,
     ENGINEER: 1,
     GENERAL: 5,
   };
@@ -172,7 +205,6 @@ const findAppointmentsByDateRange = async (filters) => {
     where: whereClause,
     include: {
       customer: true,
-      employee: true,
     },
     orderBy: {
       date: "asc",
@@ -230,10 +262,34 @@ const findAppointmentById = async (id) => {
     },
     include: {
       customer: true,
-      employee: true,
     },
   });
   return appointment;
+};
+
+const findAppointmentDetailsByLineId = async (line_user_id) => {
+  const appointment = await prisma.appointment.findFirst({
+    where: {
+      customer: {
+        line_user_id,
+      },
+      status: {
+        in: ["PENDING", "ACCEPTED_BY_EMPLOYEE", "OFFERED"],
+      },
+    },
+  });
+  if (!appointment) throw new Error("Appointment not found");
+  return appointment;
+};
+
+const findAppointmentsByLineId = async (line_user_id) => {
+  return await prisma.appointment.findMany({
+    where: {
+      customer: {
+        line_user_id,
+      },
+    },
+  });
 };
 
 /**
@@ -251,10 +307,14 @@ const findAppointmentsByTags = async (tags, employeeAdminId) => {
   return await prisma.appointment.findMany({
     where: {
       OR: [
-        // 1. งานที่ยังว่าง (PENDING) และตรงกับทักษะ
         { status: "PENDING", requiredTags: { hasSome: tags } },
-        // 2. งานที่เราเป็นคนรับผิดชอบ (ค้นหาใน String)
-        { adminId: employeeAdminId },
+        {
+          adminInfo: {
+            adminId: {
+              contains: employeeAdminId,
+            },
+          },
+        },
       ],
     },
     include: {
@@ -286,7 +346,6 @@ const updateAppointmentById = async (id, data) => {
     data: data,
     include: {
       customer: true,
-      employee: true,
     },
   });
 };
@@ -312,14 +371,14 @@ const updateAppointmentStatusByEmployee = async (
 
   switch (action.toUpperCase()) {
     case "ACCEPT":
-      // (สำคัญ) บันทึกข้อมูลพนักงานที่เป็น String ลงไปเลย
-      dataToUpdate = { adminId: employeeInfoString.adminId, status: "ACCEPTED_BY_EMPLOYEE" };
+      // Store the entire employee info string in adminId
+      dataToUpdate = { adminInfo: employeeInfoString, status: "ACCEPTED_BY_EMPLOYEE" };
       break;
     case "REJECT":
-      dataToUpdate = { adminId: employeeInfoString.adminId, status: "REJECTED_BY_EMPLOYEE" };
+      dataToUpdate = { adminInfo: employeeInfoString, status: "REJECTED_BY_EMPLOYEE" };
       break;
     case "OFFER":
-      dataToUpdate = { adminId: employeeInfoString.adminId, status: "OFFERED", offerDate };
+      dataToUpdate = { adminInfo: employeeInfoString, status: "OFFERED", offerDate };
       break;
     default:
       throw new Error("Invalid action");
@@ -384,8 +443,77 @@ const getDisplayAppointment = async (customerId) => {
   return appointment;
 };
 
+/**
+ * Accepts the time offer for an appointment and updates the appointment details
+ * @param {string} appointmentId The unique ID of the appointment
+ * @returns {Promise<object|null>} The updated appointment or null if not found
+ */
+const acceptAppointmentTimeOffer = async (appointmentId) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { customer: true },
+  });
+
+  if (!appointment) {
+    return null;
+  }
+
+  if (appointment.status !== "OFFERED" || !appointment.offerDate) {
+    throw new Error("Appointment is not in OFFERED status or has no offer date");
+  }
+
+  // Update appointment with the offered date and time
+  const offerDate = new Date(appointment.offerDate);
+  const updatedAppointment = await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: {
+      date: offerDate,
+      day: format(offerDate, "yyyy-MM-dd"),
+      section: String(offerDate.getHours()),
+      status: "CONFIRMED",
+      offerDate: null, // Clear the offer date since it's been accepted
+    },
+    include: { customer: true },
+  });
+
+  return updatedAppointment;
+};
+
+/**
+ * Rejects the time offer for an appointment and cancels the appointment
+ * @param {string} appointmentId The unique ID of the appointment
+ * @returns {Promise<object|null>} The updated appointment or null if not found
+ */
+const rejectAppointmentTimeOffer = async (appointmentId) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { customer: true },
+  });
+
+  if (!appointment) {
+    return null;
+  }
+
+  if (appointment.status !== "OFFERED") {
+    throw new Error("Appointment is not in OFFERED status");
+  }
+
+  // Cancel the appointment since the customer rejected the offer
+  const updatedAppointment = await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: {
+      status: "CANCELLED",
+      offerDate: null, // Clear the offer date since it's been rejected
+    },
+    include: { customer: true },
+  });
+
+  return updatedAppointment;
+};
+
 export default {
   createAppointment,
+  createNewUserAppointment,
   getDisplayAppointment,
   getAvailabilityByDate,
   findAppointmentsByDateRange,
@@ -393,8 +521,12 @@ export default {
   findAppointmentsByCustomerId,
   findAppointmentById,
   findAppointmentsByTags,
+  findAppointmentDetailsByLineId,
+  findAppointmentsByLineId,
   updateAppointmentById,
   updateAppointmentStatusByEmployee,
+  acceptAppointmentTimeOffer,
+  rejectAppointmentTimeOffer,
   cancelAppointment,
   deleteAppointmentById,
   deleteAppointmentsByCustomerId,

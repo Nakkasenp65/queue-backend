@@ -8,40 +8,48 @@ import { eachDayOfInterval, format, addDays, startOfDay, endOfDay } from "date-f
  * @param {object} req The request object.
  * @param {object} res The response object.
  */
-async function createAppointmentController(req, res) {
-  const { line_user_id, appointmentAt, appointmentType, note, requiredTags, ...customerData } =
-    req.body;
-
-  console.log("Received appointment creation request:", req.body);
-
-  if (!line_user_id || !appointmentAt) {
-    return res.json({ error: "line_user_id and appointmentAt are required" }, 400);
-  }
-
-  // 1. Find or create the customer. The service handles the logic.
-  const customer = await customerService.createOrUpdateCustomer({
-    line_user_id: line_user_id,
-    ...customerData,
-  });
-
-  // 2. Prepare appointment data
-  const appointmentDate = new Date(appointmentAt);
-  const mappedType = (appointmentType || "onsite").toUpperCase(); // Default to ONSITE
+async function createAppointment(req, res) {
+  const customerId = req.params.customerId;
+  const appointment = req.body;
+  const appointmentDate = new Date(appointment.appointmentAt);
+  const mappedType = (appointment.appointmentType || "onsite").toUpperCase(); // Default to ONSITE
 
   const appointmentPayload = {
-    customerId: customer.id,
+    customerId,
     date: appointmentDate,
     day: format(appointmentDate, "yyyy-MM-dd"),
     section: String(appointmentDate.getHours()),
     type: mappedType,
-    note: note,
-    requiredTags: requiredTags,
+    note: appointment.note,
+    requiredTags: appointment.requiredTags,
   };
 
-  // 3. Create the appointment using the service
-  const newAppointment = await appointmentService.createAppointment(appointmentPayload);
-
+  const newAppointment = await appointmentService.createAppointment(customerId, appointmentPayload);
   return res.json(newAppointment, 201);
+}
+
+async function createNewUserAppointment(req, res) {
+  const { customer, appointment } = req.body;
+  const newCustomer = await customerService.createOrUpdateCustomer(customer);
+
+  const appointmentDate = new Date(appointment.date);
+  const formattedDay = format(appointmentDate, "yyyy-MM-dd");
+  const section = String(appointmentDate.getHours());
+  const appointmentPayload = {
+    serviceType: appointment.serviceType,
+    date: appointmentDate,
+    day: formattedDay,
+    section,
+    type: appointment.type,
+    note: appointment.note,
+    requiredTags: appointment.requiredTags,
+  };
+
+  const newAppointment = await appointmentService.createAppointment(
+    newCustomer.id,
+    appointmentPayload
+  );
+  return res.json({ customer: newCustomer, appointment: newAppointment }, 201);
 }
 
 async function getAvailabilityController(req, res) {
@@ -141,13 +149,11 @@ async function getUpcomingAppointmentsController(req, res) {
   }
 }
 
-async function getAppointmentsByTags(req, res) {
-  const { tags, employeeAdminId } = req.query; // เปลี่ยนจาก employeeId เป็น employeeAdminId
-
+async function getEmployeeAppointmentsByTags(req, res) {
+  const { tags, employeeAdminId } = req.query;
   if (!employeeAdminId) {
     return res.status(400).json({ message: "Employee Admin ID is required" });
   }
-
   const appointments = await appointmentService.findAppointmentsByTags(tags, employeeAdminId);
   return res.status(200).json(appointments);
 }
@@ -157,25 +163,21 @@ async function getAppointmentsByTags(req, res) {
  * @param {object} req The request object.
  * @param {object} res The response object.
  */
-async function listCustomerAppointmentsController(req, res) {
-  try {
-    const { lineUserId } = req.query;
+async function getCustomerAppointmentsController(req, res) {
+  const { line_user_id } = req.params;
+  const appointments = await appointmentService.findAppointmentDetailsByLineId(line_user_id);
+  return res.status(200).json(appointments);
+}
 
-    if (!lineUserId) {
-      return res.json({ error: "lineUserId is required" }, 400);
-    }
+async function getAppointmentDetailsByLineId(req, res) {
+  const { line_user_id } = req.params;
+  const appointments = await appointmentService.findAppointmentDetailsByLineId(line_user_id);
+  return res.status(200).json(appointments);
+}
 
-    const customer = await customerService.findCustomerByLineUserIdWithAppointments(lineUserId);
-    if (!customer) {
-      return res.json({ error: "Customer not found" }, 404);
-    }
-
-    const appointments = await appointmentService.findAppointmentsByCustomerId(customer.id);
-    return res.json(appointments);
-  } catch (error) {
-    console.error("Controller Error (listCustomerAppointmentsController):", error);
-    return res.json({ success: false, message: "Internal Server Error" }, 500);
-  }
+async function getAppointmentsByLineId(req, res) {
+  const appointments = await appointmentService.findAppointmentsByLineId(req.params.line_user_id);
+  return res.status(200).json(appointments);
 }
 
 /**
@@ -254,7 +256,35 @@ async function updateAppointmentActionController(req, res) {
   }
 }
 
-/**
+async function acceptAppointmentTimeOffer(req, res) {
+  try {
+    const { appointmentId } = req.params;
+    const appointment = await appointmentService.acceptAppointmentTimeOffer(appointmentId);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    res.status(200).json(appointment);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+}
+
+async function rejectAppointmentTimeOffer(req, res) {
+  try {
+    const { appointmentId } = req.params;
+    const appointment = await appointmentService.rejectAppointmentTimeOffer(appointmentId);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    res.status(200).json(appointment);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+} /**
  * Deletes an appointment by its database ID.
  * @param {object} req The request object.
  * @param {object} res The response object.
@@ -284,16 +314,21 @@ async function getDisplayAppointment(req, res) {
 }
 
 export default {
-  createAppointmentController,
+  createAppointment,
+  createNewUserAppointment,
   getAvailabilityController,
   getUpcomingAppointmentsController,
-  getAppointmentsByTags,
+  getEmployeeAppointmentsByTags,
   getDisplayAppointment,
   listAppointmentsController,
-  listCustomerAppointmentsController,
+  getCustomerAppointmentsController,
+  getAppointmentsByLineId,
+  getAppointmentDetailsByLineId,
   getAppointmentByIdController,
   updateAppointmentController,
   updateAppointmentActionController,
+  acceptAppointmentTimeOffer,
+  rejectAppointmentTimeOffer,
   deleteAppointmentController,
   cancelAppointmentController,
 };

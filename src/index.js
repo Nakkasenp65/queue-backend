@@ -12,6 +12,8 @@ app.use(cors());
 app.use(helmet());
 app.use(express.json());
 app.use(cookieParser());
+app.set("query parser", "extended");
+app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 app.use("/api/v1", v1Routes);
 app.use("/api/v2", v2Routes);
