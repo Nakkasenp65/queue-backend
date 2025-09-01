@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import v1Routes from "./api/v1/index.js";
+import v2Routes from "./api/v2/index.js";
 
 const app = express();
 
@@ -13,6 +14,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(morgan("dev"));
 app.use("/api/v1", v1Routes);
+app.use("/api/v2", v2Routes);
 app.get("/", (req, res) => res.json({ status: "ok" }));
 app.use((err, req, res, next) => {
   console.error(err);

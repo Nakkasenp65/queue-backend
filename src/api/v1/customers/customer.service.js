@@ -48,6 +48,13 @@ const findCustomerById = async (id) => {
 const findCustomerByLineUserIdWithAppointments = async (lineUserId) => {
   return await prisma.customer.findUnique({
     where: { line_user_id: lineUserId },
+    include: {
+      appointments: {
+        where: {
+          status: { notIn: ["COMPLETED", "CANCELLED", "NO_SHOW", "REJECTED_BY_EMPLOYEE"] },
+        },
+      },
+    },
   });
 };
 
