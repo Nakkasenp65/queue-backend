@@ -22,6 +22,10 @@ enum AppointmentStatus {
   CANCELLED
   NO_SHOW
   OFFERED
+  WAITING_FOR_PAYMENT
+  PAYMENT_RECEIVED
+  PAYMENT_CONFIRMED
+  PAYMENT_INVALID
   ACCEPTED_BY_EMPLOYEE
   REJECTED_BY_EMPLOYEE
 }
@@ -32,17 +36,41 @@ enum EmployeeResponse {
   OFFER
 }
 
+enum NotificationType {
+  NEW_BOOKING_REQUEST
+  BOOKING_MODIFIED_BY_USER
+  BOOKING_CANCELLED_BY_USER_ALERT
+  QUEUE_CHECK_IN
+  BOOKING_NEW_TIME_OFFER
+  BOOKING_RECEIVED
+  BOOKING_CONFIRMED
+  BOOKING_REJECTED
+  BOOKING_MODIFIED_BY_STAFF
+  BOOKING_CANCELLED_BY_STAFF
+  BOOKING_CANCELLED_BY_USER
+  QUEUE_REMINDER_UPCOMING
+  QUEUE_REMINDER_IMMINENT
+  QUEUE_CALLED
+  QUEUE_SKIPPED
+  FEEDBACK_REQUEST
+  SYSTEM_ANNOUNCEMENT
+  PROMOTION_ALERT
+  TEST
+  ERROR
+}
+
 model Customer {
-  id                String        @id @default(auto()) @map("_id") @db.ObjectId
+  id                String            @id @default(auto()) @map("_id") @db.ObjectId
   line_display_name String?
   fullname          String?
-  phone             String?       @unique
-  line_user_id      String        @unique
+  phone             String?           @unique
+  line_user_id      String            @unique
   email             String?
   picture_url       String?
   appointments      Appointment[]
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  NotificationLog   NotificationLog[]
 }
 
 model Appointment {
@@ -58,26 +86,32 @@ model Appointment {
   note             String?
   requiredTags     String[] // Array of tags required for this appointment (e.g., ["ENGINEER", "REFINANCE"])
   employeeResponse EmployeeResponse? // Employee's response: ACCEPT, REJECT, or OFFER
+  notification     NotificationLog[]
   adminInfo        Json? // Optional: Information about the employee handling the appointment
   offerDate        DateTime? // Optional: Proposed new date/time if employee offers a new slot
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   score            Int? // 1 - 5 from customer feedback
   feedback         String?
+  slipUrl          String?
 
   @@index([customerId, date])
   @@index([requiredTags])
 }
 
 model NotificationLog {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  customerId    String?  @db.ObjectId
-  appointmentId String?  @db.ObjectId
-  employeeInfo  String?
-  message       String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([customerId])
-  @@index([appointmentId])
+  id            String           @id @default(auto()) @map("_id") @db.ObjectId
+  type          NotificationType
+  appointment   Appointment?     @relation(fields: [appointmentId], references: [id])
+  appointmentId String?          @db.ObjectId
+  recipient     Customer?        @relation(fields: [customerId], references: [id])
+  recipientId   String?          @db.ObjectId
+  title         String
+  description   String?
+  service       String?
+  isRead        Boolean          @default(false)
+  readAt        DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  customerId    String?          @db.ObjectId
 }

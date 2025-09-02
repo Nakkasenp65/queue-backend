@@ -1,18 +1,8 @@
 // import prisma from '../../../lib/prisma.js';
 import { startOfDay, endOfDay, format } from "date-fns";
 import prisma from "../../../lib/prisma.js";
+import notificationService from "../notifications/notification.service.js";
 
-/**
- * Creates a new appointment.
- * Assumes customerId is validated and provided by the controller.
- * @param {string} customerId The unique ID of the customer making the appointment.
- * @param {object} appointment The appointment data.
- * @param {Date} appointment.date The full date and time of the appointment.
- * @param {'ONSITE' | 'ONLINE' | 'OFFSITE'} appointment.type The type of the appointment.
- * @param {string} [appointment.note] An optional note for the appointment.
- * @param {Array<string>} [appointment.requiredTags] Optional tags for required employee skills.
- * @returns {Promise<object>} The newly created appointment record, including customer details.
- */
 const createAppointment = async (customerId, appointment) => {
   const day = new Date(appointment.date);
   const savedDay = format(day, "yyyy-MM-dd");
@@ -24,6 +14,7 @@ const createAppointment = async (customerId, appointment) => {
       day: savedDay,
       section: section,
       type: appointment.type,
+      serviceType: appointment.serviceType,
       note: appointment.note,
       requiredTags: appointment.requiredTags || [],
       status: "PENDING",
@@ -66,31 +57,18 @@ const createNewUserAppointment = async ({ customer, appointment }) => {
   };
 };
 
-/**
- * (Final Version) ตรวจสอบและคำนวณ Slot ที่ว่างในแต่ละวัน
- * โดยใช้ Business Logic ที่ซับซ้อน รวมถึงการจองนอกสถานที่
- * @param {Date} date - วันที่ต้องการตรวจสอบ
- * @returns {Promise<object>} Object ที่มีข้อมูล Slot และข้อมูลสรุปของวัน
- */
 const getAvailabilityByDate = async (date) => {
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(date);
   endOfDay.setHours(23, 59, 59, 999);
 
-  // ========================================================================
-  // ส่วนที่ 1: การจัดการ Capacity เริ่มต้นของพนักงาน
-  // ========================================================================
-  // TODO: นี่คือส่วนที่คุณจะนำข้อมูลการเข้ากะของพนักงาน (จาก CSV หรือ DB) มาใส่
   const employeeCapacityToday = {
     REFINANCE: 2,
     ENGINEER: 1,
     GENERAL: 5,
   };
 
-  // ========================================================================
-  // ส่วนที่ 2: การดึงข้อมูลและคำนวณล่วงหน้า (Pre-calculation)
-  // ========================================================================
   const activeAppointments = await prisma.appointment.findMany({
     where: {
       date: { gte: startOfDay, lte: endOfDay },
@@ -101,15 +79,12 @@ const getAvailabilityByDate = async (date) => {
     select: { date: true, type: true, requiredTags: true, note: true },
   });
 
-  // (สำคัญ) คำนวณคิวนอกสถานที่ของ "ทั้งวัน" ก่อน
   const offsiteRefinanceJobsToday = activeAppointments.filter(
     (apt) => apt.type === "OFFSITE" && apt.requiredTags.includes("REFINANCE")
   ).length;
 
-  // (สำคัญ) ปรับลด Capacity ของพนักงาน Refinance ตามจำนวนคิวนอกสถานที่
   const adjustedRefinanceStaff = employeeCapacityToday.REFINANCE - offsiteRefinanceJobsToday;
 
-  // จัดกลุ่มนัดหมายตามชั่วโมงเพื่อการคำนวณที่ง่ายขึ้น
   const appointmentsByHour = {};
   const HOURS = Array.from({ length: 9 }, (_, i) => 11 + i);
   HOURS.forEach((hour) => {
@@ -145,9 +120,7 @@ const getAvailabilityByDate = async (date) => {
 
     // --- คำนวณคิวซ่อม (Maintenance) ---
     const engineerJobs = jobsInHour.filter((j) => j.requiredTags.includes("ENGINEER"));
-    const hasHighPriorityJob = engineerJobs.some((j) =>
-      j.note?.toUpperCase().includes("PRIORITY:HIGH")
-    );
+    const hasHighPriorityJob = engineerJobs.some((j) => j.note?.toUpperCase().includes("PRIORITY:HIGH"));
     const engineerCap = hasHighPriorityJob ? 0 : employeeCapacityToday.ENGINEER;
 
     // --- คำนวณคิวทั่วไป ---
@@ -172,16 +145,6 @@ const getAvailabilityByDate = async (date) => {
   return slots;
 };
 
-/**
- * Retrieves all appointments within a given date range.
- * Can be filtered by customerId or a search query.
- * @param {object} filters The filtering criteria.
- * @param {Date} filters.startDate The start of the date range.
- * @param {Date} filters.endDate The end of the date range.
- * @param {string} [filters.customerId] Optional customer ID to filter appointments for.
- * @param {string} [filters.query] Optional search query to filter by note or customer name.
- * @returns {Promise<Array<object>>} A flat list of appointment records matching the criteria.
- */
 const findAppointmentsByDateRange = async (filters) => {
   const whereClause = {
     date: {
@@ -212,33 +175,6 @@ const findAppointmentsByDateRange = async (filters) => {
   });
 };
 
-/**
- * Retrieves all future appointments.
- * Used to get a list of all upcoming booked slots.
- * @returns {Promise<Array<object>>} A list of upcoming appointments with selected fields.
- */
-const findUpcomingAppointments = async () => {
-  return await prisma.appointment.findMany({
-    where: {
-      date: {
-        gte: new Date(),
-      },
-    },
-    select: {
-      date: true,
-      type: true,
-    },
-    orderBy: {
-      date: "asc",
-    },
-  });
-};
-
-/**
- * Retrieves all appointments for a specific customer.
- * @param {string} customerId The unique ID of the customer.
- * @returns {Promise<Array<object>>} A list of appointments for the specified customer.
- */
 const findAppointmentsByCustomerId = async (customerId) => {
   return await prisma.appointment.findFirst({
     where: {
@@ -250,23 +186,6 @@ const findAppointmentsByCustomerId = async (customerId) => {
   });
 };
 
-/**
- * Retrieves a single appointment by its unique ID.
- * @param {string} id The unique database ID of the appointment.
- * @returns {Promise<object|null>} The appointment record, or null if not found.
- */
-const findAppointmentById = async (id) => {
-  const appointment = await prisma.appointment.findUnique({
-    where: {
-      id: id,
-    },
-    include: {
-      customer: true,
-    },
-  });
-  return appointment;
-};
-
 const findAppointmentDetailsByLineId = async (line_user_id) => {
   const appointment = await prisma.appointment.findFirst({
     where: {
@@ -274,11 +193,20 @@ const findAppointmentDetailsByLineId = async (line_user_id) => {
         line_user_id,
       },
       status: {
-        in: ["PENDING", "ACCEPTED_BY_EMPLOYEE", "OFFERED"],
+        in: [
+          "PENDING",
+          "ACCEPTED_BY_EMPLOYEE",
+          "OFFERED",
+          "CONFIRMED",
+          "WAITING_FOR_PAYMENT",
+          "PAYMENT_RECEIVED",
+          "PAYMENT_CONFIRMED",
+          "PAYMENT_INVALID",
+        ],
       },
     },
   });
-  if (!appointment) throw new Error("Appointment not found");
+  if (!appointment) return null;
   return appointment;
 };
 
@@ -292,12 +220,6 @@ const findAppointmentsByLineId = async (line_user_id) => {
   });
 };
 
-/**
- * (อัปเกรด) ค้นหา Appointments ทั้งหมดที่เกี่ยวข้องกับพนักงาน
- * @param {string[]} tags - Array ของ Tag ที่พนักงานมี
- * @param {string} employeeAdminId - Admin ID ของพนักงานจาก Central Server
- * @returns {Promise<Array<object>>} รายการ Appointments
- */
 const findAppointmentsByTags = async (tags, employeeAdminId) => {
   // ไม่ต้องกรอง Tag อีกต่อไป เพราะ Schema เป็น String[] แล้ว
   if (!tags || !Array.isArray(tags) || tags.length === 0) {
@@ -326,12 +248,6 @@ const findAppointmentsByTags = async (tags, employeeAdminId) => {
   });
 };
 
-/**
- * Updates an existing appointment's data by its unique ID.
- * @param {string} id The unique database ID of the appointment to update.
- * @param {object} data The partial appointment data to apply.
- * @returns {Promise<object|null>} The updated appointment record, or null if not found.
- */
 const updateAppointmentById = async (id, data) => {
   // Check if the appointment exists before attempting to update
   const existingAppointment = await prisma.appointment.findUnique({ where: { id: id } });
@@ -350,29 +266,27 @@ const updateAppointmentById = async (id, data) => {
   });
 };
 
-/**
- * (อัปเกรด) อัปเดตสถานะ Appointment โดยพนักงาน
- * @param {string} appointmentId - ID ของ Appointment
- * @param {string} employeeInfoString - ข้อมูลพนักงานในรูปแบบ JSON String
- * @param {string} action - การกระทำ: 'ACCEPT', 'REJECT', 'OFFER'
- * @param {Date} [offerDate] - วันที่เสนอใหม่ (ถ้ามี)
- * @returns {Promise<object|null>} Appointment ที่อัปเดตแล้ว
- */
-const updateAppointmentStatusByEmployee = async (
-  appointmentId,
-  employeeInfoString,
-  action,
-  offerDate
-) => {
-  const appointment = await prisma.appointment.findUnique({ where: { id: appointmentId } });
+const updateAppointmentStatusByEmployee = async (appointmentId, employeeInfoString, action, offerDate) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { customer: true }, // Include customer for notification
+  });
   if (!appointment) return null;
 
   let dataToUpdate = {};
 
   switch (action.toUpperCase()) {
     case "ACCEPT":
-      // Store the entire employee info string in adminId
-      dataToUpdate = { adminInfo: employeeInfoString, status: "ACCEPTED_BY_EMPLOYEE" };
+      // ================== NEW CONDITIONAL LOGIC ==================
+      // Check if the service is OFFSITE REFINANCE
+      if (appointment.serviceType === "รีไฟแนนซ์" && appointment.type === "OFFSITE") {
+        // If so, move to waiting for payment instead of confirming directly
+        dataToUpdate = { adminInfo: employeeInfoString, status: "WAITING_FOR_PAYMENT" };
+      } else {
+        // Original logic for all other services
+        dataToUpdate = { adminInfo: employeeInfoString, status: "ACCEPTED_BY_EMPLOYEE" };
+      }
+      // ===========================================================
       break;
     case "REJECT":
       dataToUpdate = { adminInfo: employeeInfoString, status: "REJECTED_BY_EMPLOYEE" };
@@ -380,30 +294,107 @@ const updateAppointmentStatusByEmployee = async (
     case "OFFER":
       dataToUpdate = { adminInfo: employeeInfoString, status: "OFFERED", offerDate };
       break;
+    // ================== NEW ACTION FOR FINAL CONFIRMATION ==================
+    case "CONFIRM_BOOKING":
+      // This action is for the employee to finally confirm after payment is verified
+      if (appointment.status !== "PAYMENT_CONFIRMED") {
+        throw new Error("Cannot confirm booking. Payment not confirmed yet.");
+      }
+      dataToUpdate = { status: "CONFIRMED" };
+      break;
+    // =======================================================================
     default:
       throw new Error("Invalid action");
   }
 
-  return await prisma.appointment.update({
+  const updatedAppointment = await prisma.appointment.update({
     where: { id: appointmentId },
     data: dataToUpdate,
   });
+
+  // --- Notification Logic ---
+  // (This part can be expanded with more specific notifications)
+  if (action.toUpperCase() === "ACCEPT") {
+    if (updatedAppointment.status === "WAITING_FOR_PAYMENT") {
+      // TODO: Create a specific notification for "Waiting for Payment"
+      // For now, we can reuse the accept notification
+      await notificationService.createAcceptAppointmentNotification(updatedAppointment.id);
+    } else {
+      await notificationService.createAcceptAppointmentNotification(updatedAppointment.id);
+    }
+  } else if (action.toUpperCase() === "REJECT") {
+    await notificationService.createRejectAppointmentNotification(updatedAppointment.id);
+  } else if (action.toUpperCase() === "OFFER") {
+    await notificationService.createOfferedAppointmentNofitication(updatedAppointment.id);
+  } else if (action.toUpperCase() === "CONFIRM_BOOKING") {
+    // TODO: Create a notification to inform the customer that their booking is fully confirmed
+  }
+
+  return updatedAppointment;
+};
+
+const submitPaymentSlip = async (appointmentId, slipUrl) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+  });
+
+  // Ensure payment is currently required
+  if (appointment.status !== "WAITING_FOR_PAYMENT" && appointment.status !== "PAYMENT_INVALID") {
+    throw new Error("Payment is not currently required for this appointment.");
+  }
+
+  return await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: {
+      slipUrl: slipUrl,
+      status: "PAYMENT_RECEIVED",
+    },
+  });
+};
+
+// NEW FUNCTION: verifyPayment
+const verifyPayment = async (appointmentId, isValid) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+  });
+
+  // Ensure the appointment is in the correct state for verification
+  if (appointment.status !== "PAYMENT_RECEIVED") {
+    throw new Error("This appointment is not awaiting payment verification.");
+  }
+
+  const newStatus = isValid ? "PAYMENT_CONFIRMED" : "PAYMENT_INVALID";
+
+  const updatedAppointment = await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: {
+      status: newStatus,
+    },
+  });
+
+  // --- Trigger Notifications ---
+  if (isValid) {
+    // TODO: Notify the employee that payment is confirmed and they can proceed
+    // await notificationService.createPaymentConfirmedNotificationToEmployee(updatedAppointment.id);
+  } else {
+    // TODO: Notify the customer that their payment was invalid and they need to re-upload
+    // await notificationService.createPaymentInvalidNotificationToCustomer(updatedAppointment.id);
+  }
+
+  return updatedAppointment;
 };
 
 const cancelAppointment = async (appointmentId) => {
-  return await prisma.appointment.update({
+  const appointment = await prisma.appointment.update({
     where: { id: appointmentId },
     data: {
       status: "CANCELLED",
     },
   });
+
+  return appointment;
 };
 
-/**
- * Deletes a single appointment by its unique ID.
- * @param {string} id The unique database ID of the appointment to delete.
- * @returns {Promise<{success: boolean}|null>} A success indicator, or null if the appointment was not found.
- */
 const deleteAppointmentById = async (id) => {
   const existingAppointment = await prisma.appointment.findUnique({ where: { id: id } });
   if (!existingAppointment) {
@@ -419,11 +410,6 @@ const deleteAppointmentById = async (id) => {
   return { success: true };
 };
 
-/**
- * Deletes all appointments associated with a specific customer ID.
- * @param {string} customerId The unique ID of the customer whose appointments should be deleted.
- * @returns {Promise<{count: number}>} An object containing the count of deleted appointments.
- */
 const deleteAppointmentsByCustomerId = async (customerId) => {
   return await prisma.appointment.deleteMany({
     where: {
@@ -443,11 +429,6 @@ const getDisplayAppointment = async (customerId) => {
   return appointment;
 };
 
-/**
- * Accepts the time offer for an appointment and updates the appointment details
- * @param {string} appointmentId The unique ID of the appointment
- * @returns {Promise<object|null>} The updated appointment or null if not found
- */
 const acceptAppointmentTimeOffer = async (appointmentId) => {
   const appointment = await prisma.appointment.findUnique({
     where: { id: appointmentId },
@@ -479,11 +460,6 @@ const acceptAppointmentTimeOffer = async (appointmentId) => {
   return updatedAppointment;
 };
 
-/**
- * Rejects the time offer for an appointment and cancels the appointment
- * @param {string} appointmentId The unique ID of the appointment
- * @returns {Promise<object|null>} The updated appointment or null if not found
- */
 const rejectAppointmentTimeOffer = async (appointmentId) => {
   const appointment = await prisma.appointment.findUnique({
     where: { id: appointmentId },
@@ -517,9 +493,7 @@ export default {
   getDisplayAppointment,
   getAvailabilityByDate,
   findAppointmentsByDateRange,
-  findUpcomingAppointments,
   findAppointmentsByCustomerId,
-  findAppointmentById,
   findAppointmentsByTags,
   findAppointmentDetailsByLineId,
   findAppointmentsByLineId,
@@ -530,4 +504,6 @@ export default {
   cancelAppointment,
   deleteAppointmentById,
   deleteAppointmentsByCustomerId,
+  submitPaymentSlip,
+  verifyPayment,
 };
