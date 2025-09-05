@@ -94,6 +94,7 @@ model Appointment {
   section          String
   customer         Customer          @relation(fields: [customerId], references: [id])
   customerId       String            @db.ObjectId
+  priority         String?
   note             String?
   requiredTags     String[] // Array of tags required for this appointment (e.g., ["ENGINEER", "REFINANCE"])
   employeeResponse EmployeeResponse? // Employee's response: ACCEPT, REJECT, or OFFER

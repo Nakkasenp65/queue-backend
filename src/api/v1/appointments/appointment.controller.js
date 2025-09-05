@@ -80,19 +80,13 @@ async function getEmployeeAppointmentsByTags(req, res) {
   return res.status(200).json(appointments);
 }
 
-async function getCustomerAppointmentsController(req, res) {
-  const { line_user_id } = req.params;
-  const appointments = await appointmentService.findAppointmentDetailsByLineId(line_user_id);
-  return res.status(200).json(appointments);
-}
-
 async function getAppointmentDetailsByLineId(req, res) {
-  const appointment = await appointmentService.findAppointmentDetailsByLineId(req.params.line_user_id);
+  const appointment = await appointmentService.getAppointmentDetailsByLineId(req.params.line_user_id);
   return res.status(200).json(appointment);
 }
 
 async function getAppointmentsByLineId(req, res) {
-  const appointments = await appointmentService.findAppointmentsByLineId(req.params.line_user_id);
+  const appointments = await appointmentService.getAppointmentsByLineId(req.params.line_user_id);
   return res.status(200).json(appointments);
 }
 
@@ -182,25 +176,6 @@ async function rejectAppointmentTimeOffer(req, res) {
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
-} /**
- * Deletes an appointment by its database ID.
- * @param {object} req The request object.
- * @param {object} res The response object.
- */
-async function deleteAppointmentController(req, res) {
-  try {
-    const { id } = req.params;
-    const result = await appointmentService.deleteAppointmentById(id);
-
-    if (!result) {
-      return res.json({ success: false, message: "Appointment not found" }, 404);
-    }
-
-    return res.json({ success: true, message: "Appointment deleted successfully" });
-  } catch (error) {
-    console.error("Controller Error (deleteAppointmentController):", error);
-    return res.json({ success: false, message: "Internal Server Error" }, 500);
-  }
 }
 
 async function getDisplayAppointment(req, res) {
@@ -261,14 +236,12 @@ export default {
   getAppointmentById,
   getAvailabilityController,
   getDisplayAppointment,
-  getCustomerAppointmentsController,
   getAppointmentsByLineId,
   getAppointmentDetailsByLineId,
   updateAppointmentController,
   updateAppointmentAction,
   acceptAppointmentTimeOffer,
   rejectAppointmentTimeOffer,
-  deleteAppointmentController,
   cancelAppointmentController,
   submitPaymentSlip,
   handlePaymentVerification,
