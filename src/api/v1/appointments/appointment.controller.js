@@ -2,6 +2,7 @@ import appointmentService from "./appointment.service.js";
 import customerService from "../customers/customer.service.js";
 import { format } from "date-fns";
 import notificationService from "../notifications/notification.service.js";
+import httpStatus from "../../../utils/http.js";
 
 async function createAppointment(req, res) {
   const customerId = req.params.customerId;
@@ -63,22 +64,19 @@ async function getAvailabilityController(req, res) {
   try {
     const { date } = req.query;
     if (!date) {
-      return res.status(400).json({ message: "Date parameter is required" });
+      return res.status(httpStatus.BAD_REQUEST).json({ message: "Date parameter is required" });
     }
     const availability = await appointmentService.getAvailabilityByDate(new Date(date));
-    return res.status(200).json(availability);
+    return res.status(httpStatus.OK).json(availability);
   } catch (error) {
     console.error("Controller Error (getAvailabilityController):", error);
-    return res.status(500).json({ message: "Internal Server Error" });
+    return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({ message: "Internal Server Error" });
   }
 }
 
 async function getEmployeeAppointmentsByTags(req, res) {
-  const { tags, employeeAdminId } = req.query;
-  if (!employeeAdminId) {
-    return res.status(400).json({ message: "Employee Admin ID is required" });
-  }
-  const appointments = await appointmentService.findAppointmentsByTags(tags, employeeAdminId);
+  const { tags, status } = req.query;
+  const appointments = await appointmentService.getAppointmentsByTags(tags, status);
   return res.status(200).json(appointments);
 }
 
@@ -96,6 +94,12 @@ async function getAppointmentDetailsByLineId(req, res) {
 async function getAppointmentsByLineId(req, res) {
   const appointments = await appointmentService.findAppointmentsByLineId(req.params.line_user_id);
   return res.status(200).json(appointments);
+}
+
+async function getAppointmentById(req, res) {
+  const { appointmentId } = req.params;
+  const appointment = await appointmentService.getAppointmentById(appointmentId);
+  res.status(httpStatus.OK).json(appointment);
 }
 
 /**
@@ -132,25 +136,22 @@ async function cancelAppointmentController(req, res) {
   res.status(200).json(appointment);
 }
 
-async function updateAppointmentActionController(req, res) {
-  try {
-    const { id: appointmentId } = req.params;
-    const { action, offerDate, employeeInfo } = req.body;
+async function updateAppointmentAction(req, res) {
+  const { id: appointmentId } = req.params;
+  const { action, offerDate } = req.body;
 
-    const updatedAppointment = await appointmentService.updateAppointmentStatusByEmployee(
-      appointmentId,
-      employeeInfo,
-      action,
-      offerDate
-    );
+  const updatedAppointment = await appointmentService.updateAppointmentStatusByEmployee(
+    appointmentId,
+    req.employeeInfo,
+    action,
+    offerDate
+  );
 
-    if (!updatedAppointment) {
-      return res.status(404).json({ message: "Appointment not found" });
-    }
-    return res.status(200).json(updatedAppointment);
-  } catch (error) {
-    return res.status(500).json({ message: error.message || "Internal Server Error" });
+  if (!updatedAppointment) {
+    return res.status(404).json({ message: "Appointment not found" });
   }
+
+  return res.status(200).json(updatedAppointment);
 }
 
 async function acceptAppointmentTimeOffer(req, res) {
@@ -254,16 +255,17 @@ async function handlePaymentVerification(req, res) {
 }
 
 export default {
-  getEmployeeAppointmentsByTags,
   createAppointment,
   createNewUserAppointment,
+  getEmployeeAppointmentsByTags,
+  getAppointmentById,
   getAvailabilityController,
   getDisplayAppointment,
   getCustomerAppointmentsController,
   getAppointmentsByLineId,
   getAppointmentDetailsByLineId,
   updateAppointmentController,
-  updateAppointmentActionController,
+  updateAppointmentAction,
   acceptAppointmentTimeOffer,
   rejectAppointmentTimeOffer,
   deleteAppointmentController,

@@ -57,6 +57,19 @@ const createNewUserAppointment = async ({ customer, appointment }) => {
   };
 };
 
+const getAppointmentById = async (appointmentId) => {
+  const appointment = await prisma.appointment.findUnique({
+    where: {
+      id: appointmentId,
+    },
+    include: {
+      customer: true,
+    },
+  });
+
+  return appointment;
+};
+
 const getAvailabilityByDate = async (date) => {
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
@@ -220,25 +233,21 @@ const findAppointmentsByLineId = async (line_user_id) => {
   });
 };
 
-const findAppointmentsByTags = async (tags, employeeAdminId) => {
-  // ไม่ต้องกรอง Tag อีกต่อไป เพราะ Schema เป็น String[] แล้ว
-  if (!tags || !Array.isArray(tags) || tags.length === 0) {
-    tags = []; // ถ้าไม่มี tag มา ให้เป็น array ว่าง
+const getAppointmentsByTags = async (tags, status) => {
+  let whereClause = {};
+
+  if (tags && tags.length > 0) {
+    whereClause.requiredTags = {
+      hasSome: tags,
+    };
   }
 
-  return await prisma.appointment.findMany({
-    where: {
-      OR: [
-        { status: "PENDING", requiredTags: { hasSome: tags } },
-        {
-          adminInfo: {
-            adminId: {
-              contains: employeeAdminId,
-            },
-          },
-        },
-      ],
-    },
+  if (status) {
+    whereClause.status = status;
+  }
+
+  const appointments = await prisma.appointment.findMany({
+    where: whereClause,
     include: {
       customer: true,
     },
@@ -246,6 +255,8 @@ const findAppointmentsByTags = async (tags, employeeAdminId) => {
       date: "asc",
     },
   });
+
+  return appointments;
 };
 
 const updateAppointmentById = async (id, data) => {
@@ -492,9 +503,10 @@ export default {
   createNewUserAppointment,
   getDisplayAppointment,
   getAvailabilityByDate,
+  getAppointmentsByTags,
+  getAppointmentById,
   findAppointmentsByDateRange,
   findAppointmentsByCustomerId,
-  findAppointmentsByTags,
   findAppointmentDetailsByLineId,
   findAppointmentsByLineId,
   updateAppointmentById,

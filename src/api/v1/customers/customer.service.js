@@ -1,22 +1,52 @@
+import axios from "axios";
 import prisma from "../../../lib/prisma.js";
+import FormData from "form-data";
 
-const createOrUpdateCustomer = async (data) => {
-  return await prisma.customer.upsert({
-    where: { line_user_id: data.line_user_id },
-    update: {
-      line_display_name: data.line_display_name,
-      fullname: data.fullname,
-      phone: data.phone,
-      email: data.email,
-      note: data.note,
+const createOrUpdateCustomer = async (payload) => {
+  const uploadApiUrl = process.env.UPLOAD_IMAGE_API_URL;
+
+  // data.picture_url
+  const downloadedImage = await axios.get(payload.picture_url, {
+    responseType: "arraybuffer",
+  });
+
+  const imageBuffer = downloadedImage.data;
+  const mimeType = downloadedImage.headers["content-type"] || "image/jpeg";
+  const filename = `profile.jpg`;
+
+  const formData = new FormData();
+  formData.append("myFile", imageBuffer, {
+    filename: filename,
+    contentType: mimeType,
+  });
+
+  formData.append("userId", payload.line_user_id);
+
+  // 4. Post the FormData to your upload API
+  const { data } = await axios.post(uploadApiUrl, formData, {
+    headers: {
+      ...formData.getHeaders(),
     },
-    create: {
-      line_user_id: data.line_user_id,
-      line_display_name: data.line_display_name,
-      fullname: data.fullname,
-      phone: data.phone,
-      email: data.email,
-      note: data.note,
+  });
+
+  //   {
+  //   message: 'File uploaded successfully!',
+  //   data: {
+  //     fileId: '15V6LkasFydcCJr0LaDqkjo3mESCAtYmv',
+  //     fileName: '68b94a4a3eddee8010c6397c_1756983373927_user-upload.jpg',
+  //     url: 'https://lh3.googleusercontent.com/d/15V6LkasFydcCJr0LaDqkjo3mESCAtYmv'
+  //   }
+  // }
+
+  return await prisma.customer.create({
+    data: {
+      line_user_id: payload.line_user_id,
+      line_display_name: payload.line_display_name,
+      fullname: payload.fullname,
+      phone: payload.phone,
+      email: payload.email,
+      note: payload.note,
+      picture_url: data.data.url,
     },
   });
 };

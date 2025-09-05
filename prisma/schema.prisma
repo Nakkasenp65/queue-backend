@@ -1,6 +1,10 @@
 generator client {
   provider      = "prisma-client-js"
+  // output generated/prisma ไปที่ ...ต้องตรงกับ prisma.js 
+  // import { PrismaClient } from '../generated/prisma/index.js';
+  // ดู output ทุกรอบก่อน prisma generate
   output        = "../src/generated/prisma"
+  // สำหรับ vercel 
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
@@ -9,12 +13,14 @@ datasource db {
   url      = env("MONGO_URL")
 }
 
+// ประเภทสถานที่การจอง
 enum AppointmentType {
   ONSITE
   ONLINE
   OFFSITE
 }
 
+// สถานะของการจองทั้งหมด
 enum AppointmentStatus {
   PENDING
   CONFIRMED
@@ -30,12 +36,14 @@ enum AppointmentStatus {
   REJECTED_BY_EMPLOYEE
 }
 
+//ประเภทการตอบกลับของ employee ใน Appointment
 enum EmployeeResponse {
   ACCEPT
   REJECT
   OFFER
 }
 
+// ประเภทการแจ้งเตือน
 enum NotificationType {
   NEW_BOOKING_REQUEST
   BOOKING_MODIFIED_BY_USER
@@ -59,6 +67,7 @@ enum NotificationType {
   ERROR
 }
 
+// ข้อมูลโปรไฟล์ลูกค้า
 model Customer {
   id                String            @id @default(auto()) @map("_id") @db.ObjectId
   line_display_name String?
@@ -73,8 +82,10 @@ model Customer {
   NotificationLog   NotificationLog[]
 }
 
+// การจองของลูกค้า
 model Appointment {
   id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  queueId          String // R1101 F1402 G1501
   type             AppointmentType
   status           AppointmentStatus @default(PENDING)
   serviceType      String
@@ -99,6 +110,7 @@ model Appointment {
   @@index([requiredTags])
 }
 
+//การแจ้งเตือนทั้งหมด
 model NotificationLog {
   id            String           @id @default(auto()) @map("_id") @db.ObjectId
   type          NotificationType
